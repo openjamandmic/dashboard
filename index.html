@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BTC agent ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,300..800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #E7ECF1;
+    --paper-2: #D9E0E8;
+    --ink: #17253A;
+    --ink-2: #4A5B72;
+    --rule: #B9C4D1;
+    --gain: #1F7A56;
+    --loss: #A83A3A;
+    --mut: #B8891F;
+    font-family: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+    font-variation-settings: "opsz" 14, "wdth" 100;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--paper); color: var(--ink); }
+  body { font-size: 15px; line-height: 1.45; padding: 0 clamp(16px, 4vw, 56px) 80px; }
+  a { color: inherit; }
+  .num { font-variant-numeric: tabular-nums; }
+  .gain { color: var(--gain); } .loss { color: var(--loss); }
+
+  header { display: flex; justify-content: space-between; align-items: baseline; padding: 28px 0 12px; border-bottom: 1px solid var(--rule); gap: 16px; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+  header .status { color: var(--ink-2); font-size: 14px; }
+  header .status b { color: var(--ink); font-weight: 600; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--rule); margin-right: 6px; vertical-align: middle; }
+  .dot.live { background: var(--gain); }
+
+  /* Hero: the equity curve with the headline number sitting on it */
+  .hero { position: relative; margin-top: 24px; }
+  .hero canvas { width: 100%; height: clamp(240px, 38vw, 420px); display: block; }
+  .headline { position: absolute; left: 0; top: 0; pointer-events: none; }
+  .headline .pnl { font-size: clamp(56px, 9vw, 120px); font-weight: 300; line-height: 0.95; letter-spacing: -0.035em; font-variation-settings: "opsz" 96, "wdth" 92; }
+  .headline .sub { margin-top: 10px; color: var(--ink-2); font-size: 15px; max-width: 46ch; }
+  .headline .sub span { color: var(--ink); }
+
+  section { margin-top: 56px; }
+  h2 { font-size: 22px; font-weight: 500; letter-spacing: -0.015em; margin: 0 0 14px; }
+  .lede { color: var(--ink-2); max-width: 70ch; margin: 0 0 18px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 32px 48px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px 8px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { font-weight: 500; color: var(--ink-2); }
+  td.r, th.r { text-align: right; padding-right: 0; padding-left: 10px; }
+  tr.champion td { font-weight: 600; }
+  tr.promoted td:first-child::after { content: " promoted"; color: var(--mut); font-weight: 500; }
+
+  .facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 18px; font-size: 14px; }
+  .facts dt { color: var(--ink-2); } .facts dd { margin: 0; }
+  .params { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px 20px; margin-top: 10px; font-size: 14px; }
+  .params div { display: flex; justify-content: space-between; border-bottom: 1px dotted var(--rule); padding: 3px 0; }
+  .params div span:last-child { font-weight: 600; }
+
+  blockquote { margin: 0; padding: 0 0 0 16px; border-left: 3px solid var(--mut); color: var(--ink); max-width: 70ch; }
+  ul.hyp { padding-left: 18px; margin: 10px 0 0; max-width: 70ch; } ul.hyp li { margin: 4px 0; }
+
+  .events { font-size: 13px; color: var(--ink-2); }
+  .events div { padding: 4px 0; border-bottom: 1px solid var(--paper-2); }
+  .events time { color: var(--ink); margin-right: 8px; }
+
+  .empty { color: var(--ink-2); padding: 20px 0; }
+  .filter { margin: 0 0 12px; font-size: 14px; }
+  .filter button { font: inherit; background: none; border: 1px solid var(--rule); border-radius: 20px; padding: 4px 12px; margin-right: 6px; cursor: pointer; color: var(--ink-2); }
+  .filter button[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  .filter button:focus-visible { outline: 2px solid var(--mut); outline-offset: 2px; }
+  @media (prefers-reduced-motion: no-preference) { .headline .pnl { transition: color .3s; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>BTC agent ledger</h1>
+  <div class="status" id="status">Loading…</div>
+</header>
+
+<div class="hero">
+  <canvas id="equity" aria-label="Champion equity curve"></canvas>
+  <div class="headline">
+    <div class="pnl num" id="pnl">—</div>
+    <div class="sub" id="pnlSub"></div>
+  </div>
+</div>
+
+<section>
+  <h2>This week's tournament</h2>
+  <p class="lede" id="tourLede"></p>
+  <table id="board"><thead><tr><th>Bot</th><th>Venue</th><th class="r">Trades</th><th class="r">Win rate</th><th class="r">Fees</th><th class="r">Net P&amp;L</th><th class="r">Max DD</th></tr></thead><tbody></tbody></table>
+</section>
+
+<section class="grid">
+  <div>
+    <h2>Champion strategy</h2>
+    <dl class="facts" id="champFacts"></dl>
+    <div class="params" id="params"></div>
+  </div>
+  <div>
+    <h2>Latest analyst review</h2>
+    <div id="review"></div>
+  </div>
+</section>
+
+<section>
+  <h2>Champion trades</h2>
+  <div class="filter" role="group" aria-label="Trade filter">
+    <button aria-pressed="true" data-f="all">All</button><button aria-pressed="false" data-f="win">Winners</button><button aria-pressed="false" data-f="loss">Losers</button>
+  </div>
+  <table id="trades"><thead><tr><th>Closed</th><th>Strategy</th><th>In → out</th><th class="r">Entry</th><th class="r">Exit</th><th class="r">Held</th><th class="r">RSI</th><th class="r">Fees</th><th class="r">Net</th></tr></thead><tbody></tbody></table>
+</section>
+
+<section class="grid">
+  <div>
+    <h2>Costs</h2>
+    <dl class="facts" id="costs"></dl>
+  </div>
+  <div>
+    <h2>Loop events</h2>
+    <div class="events" id="events"></div>
+  </div>
+</section>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const usd = (x, d = 2) => (x == null || !isFinite(x) ? '—' : (x < 0 ? '−' : '') + '$' + Math.abs(x).toFixed(d));
+const pct = (x) => (x == null ? '—' : (x * 100).toFixed(0) + '%');
+const cls = (x) => (x > 0 ? 'gain' : x < 0 ? 'loss' : '');
+const when = (iso) => iso ? new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+const bars = (n, iv) => { const m = { '1m':1,'5m':5,'15m':15,'1h':60,'4h':240 }[iv] || 5; const mins = n * m; return mins < 60 ? mins + 'm' : (mins / 60).toFixed(1).replace(/\.0$/, '') + 'h'; };
+
+function drawEquity(curve) {
+  const c = $('#equity'); const dpr = devicePixelRatio || 1;
+  const W = c.clientWidth, H = c.clientHeight; c.width = W * dpr; c.height = H * dpr;
+  const g = c.getContext('2d'); g.scale(dpr, dpr); g.clearRect(0, 0, W, H);
+  if (curve.length < 2) return;
+  const ys = curve.map((p) => p.equity), lo = Math.min(0, ...ys), hi = Math.max(0, ...ys) || 1;
+  const top = H * 0.42, bottom = H - 24; // leave the top-left for the headline
+  const x = (i) => (i / (curve.length - 1)) * W, y = (v) => bottom - ((v - lo) / (hi - lo || 1)) * (bottom - top);
+  g.strokeStyle = '#B9C4D1'; g.lineWidth = 1; g.beginPath(); g.moveTo(0, y(0)); g.lineTo(W, y(0)); g.stroke();
+  const last = ys.at(-1);
+  g.beginPath(); ys.forEach((v, i) => (i ? g.lineTo(x(i), y(v)) : g.moveTo(x(i), y(v))));
+  g.lineTo(W, y(0)); g.lineTo(0, y(0)); g.closePath();
+  g.fillStyle = last >= 0 ? 'rgba(31,122,86,.10)' : 'rgba(168,58,58,.10)'; g.fill();
+  g.beginPath(); ys.forEach((v, i) => (i ? g.lineTo(x(i), y(v)) : g.moveTo(x(i), y(v))));
+  g.strokeStyle = last >= 0 ? '#1F7A56' : '#A83A3A'; g.lineWidth = 2; g.lineJoin = 'round'; g.stroke();
+  g.fillStyle = '#4A5B72'; g.font = '12px "Bricolage Grotesque", sans-serif';
+  g.fillText(new Date(curve[0].t).toLocaleDateString(), 0, H - 6);
+  const end = new Date(curve.at(-1).t).toLocaleDateString(); g.fillText(end, W - g.measureText(end).width, H - 6);
+}
+
+let D;
+async function load() {
+  try { D = await (await fetch('data/dashboard.json?_=' + Date.now())).json(); } catch { $('#status').textContent = 'No data yet. Run npm run publish to create data/dashboard.json.'; return; }
+  const champ = D.bots.find((b) => b.botId === 'champion');
+  const all = champ?.allTime || {}, wk = champ?.week || {};
+
+  $('#status').innerHTML = `<span class="dot ${D.live ? 'live' : ''}"></span>${D.live ? 'Live on Binance.US' : 'Shadow mode'} · cycle <b>${D.cycle}</b> · updated ${when(D.generatedAt)}`;
+  $('#pnl').textContent = usd(all.netPnl); $('#pnl').className = 'pnl num ' + cls(all.netPnl);
+  $('#pnlSub').innerHTML = `Net of fees, all time, on <span>${D.symbol}</span>. This week <span class="${cls(wk.netPnl)}">${usd(wk.netPnl)}</span> over ${wk.trades || 0} trades, ${pct(wk.winRate)} won. Champion is <span>${D.champion.name}</span>.`;
+  drawEquity(D.equityCurve);
+
+  // tournament
+  const t = D.tournament, lt = D.lastTournament;
+  const rows = [];
+  if (t) {
+    $('#tourLede').textContent = `Cycle ${t.cycle} started ${when(t.startedAt)} and settles ${when(t.endsAt)}. The variant with the best net P&L, after subtracting its share of the AI review cost, replaces the champion only if it also beats the champion's live result over the same window.`;
+    rows.push({ ...champ, week: champ.week, venue: D.live ? 'Binance.US' : 'shadow', champion: true });
+    for (const e of t.entrants) { const b = D.bots.find((x) => x.botId === e.botId); rows.push({ botId: e.botId, venue: e.mode, week: b?.week || {} }); }
+  } else if (lt) {
+    $('#tourLede').textContent = `Cycle ${lt.cycle} settled. ${lt.promoted ? lt.promoted + ' was promoted to champion.' : 'The champion was retained; no variant beat it.'}`;
+    rows.push({ botId: 'champion', venue: D.live ? 'Binance.US' : 'shadow', week: lt.champion, champion: true });
+    for (const b of lt.board) rows.push({ botId: b.botId, venue: b.mode, week: b, promoted: b.botId === lt.promoted });
+  } else $('#tourLede').textContent = 'No tournament has run yet. The first one starts at the next scheduled evaluation.';
+  $('#board tbody').innerHTML = rows.map((r) => `<tr class="${r.champion ? 'champion' : ''} ${r.promoted ? 'promoted' : ''}"><td>${r.botId}</td><td>${r.venue || ''}</td><td class="r num">${r.week.trades ?? 0}</td><td class="r num">${pct(r.week.winRate)}</td><td class="r num">${usd(r.week.fees)}</td><td class="r num ${cls(r.week.netPnl)}">${usd(r.week.netPnl)}</td><td class="r num">${usd(r.week.maxDrawdown)}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">Nothing to show yet.</td></tr>';
+
+  // champion
+  $('#champFacts').innerHTML = `<dt>Name</dt><dd>${D.champion.name} v${D.champion.version}</dd><dt>Hypothesis</dt><dd>${D.champion.hypothesis}</dd><dt>Runs on</dt><dd>${D.config.interval} candles, ${usd(D.config.notional, 0)} per trade, stops after ${usd(D.config.maxDailyLoss, 0)} daily loss</dd><dt>Record</dt><dd>${all.trades || 0} trades, ${pct(all.winRate)} won, profit factor ${isFinite(all.profitFactor) ? (all.profitFactor || 0).toFixed(2) : '∞'}</dd>`;
+  $('#params').innerHTML = Object.entries(D.champion.params).map(([k, v]) => `<div><span>${k}</span><span class="num">${v}</span></div>`).join('');
+
+  // review
+  const ev = D.lastEvaluation;
+  $('#review').innerHTML = ev ? `<blockquote>${ev.diagnosis}</blockquote><ul class="hyp">${(ev.hypotheses || []).map((h) => `<li>${h}</li>`).join('')}</ul><p class="lede" style="margin-top:12px">${ev.variants.filter((v) => v.accepted).length} of ${ev.variants.length} generated variants passed the sandbox and 60-day backtest gate.</p>` : '<p class="empty">The analyst has not reviewed a week yet.</p>';
+
+  // trades
+  const render = (f) => {
+    const list = D.championTrades.filter((t) => f === 'all' || (f === 'win' ? t.netPnl > 0 : t.netPnl <= 0)).slice().reverse();
+    $('#trades tbody').innerHTML = list.map((t) => `<tr><td class="num">${when(t.closed)}</td><td>${t.strategy || ''}</td><td>${t.reasonIn} → ${t.reasonOut}</td><td class="r num">${t.entry.toFixed(0)}</td><td class="r num">${t.exit.toFixed(0)}</td><td class="r num">${bars(t.barsHeld, D.config.interval)}</td><td class="r num">${t.rsi?.toFixed(0) ?? '—'}</td><td class="r num">${usd(t.fees)}</td><td class="r num ${cls(t.netPnl)}">${usd(t.netPnl)}</td></tr>`).join('') || '<tr><td colspan="9" class="empty">No closed trades in this view.</td></tr>';
+  };
+  render('all');
+  document.querySelectorAll('.filter button').forEach((b) => b.onclick = () => { document.querySelectorAll('.filter button').forEach((x) => x.setAttribute('aria-pressed', x === b)); render(b.dataset.f); });
+
+  // costs
+  const fees = all.fees || 0, ai = D.ai.totalSpendUsd || 0;
+  $('#costs').innerHTML = `<dt>Exchange fees paid</dt><dd class="num">${usd(fees)}</dd><dt>Slippage assumed</dt><dd class="num">${(D.config.fees.slippage * 1e4).toFixed(0)} bps per side</dd><dt>AI review spend</dt><dd class="num">${usd(ai)} total, ${usd(D.ai.monthSpendUsd)} this month of a ${usd(D.ai.budgetUsd, 0)} cap</dd><dt>Model</dt><dd>${D.config.aiModel}</dd><dt>P&amp;L after AI cost</dt><dd class="num ${cls((all.netPnl || 0) - ai)}">${usd((all.netPnl || 0) - ai)}</dd>`;
+
+  // events
+  $('#events').innerHTML = D.events.slice().reverse().slice(0, 40).map((e) => `<div><time>${when(e.ts)}</time>${e.type}${e.botId ? ' · ' + e.botId : ''}${e.promoted ? ' · promoted ' + e.promoted : ''}${e.error ? ' · ' + e.error : ''}</div>`).join('') || '<div class="empty">No events yet.</div>';
+}
+load();
+addEventListener('resize', () => D && drawEquity(D.equityCurve));
+</script>
+</body>
+</html>
