@@ -50,6 +50,12 @@
   th, td { text-align: left; padding: 8px 10px 8px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
   th { font-weight: 500; color: var(--ink-2); }
   td.r, th.r { text-align: right; padding-right: 0; padding-left: 10px; }
+  .lots-wrap { overflow-x: auto; }
+  #lots td, #lots th { white-space: nowrap; padding-left: 12px; }
+  #lots td:first-child, #lots th:first-child { padding-left: 0; }
+  #lots code { font-size: 12px; background: var(--paper-2); padding: 1px 5px; border-radius: 3px; user-select: all; }
+  #lots .side { font-size: 12px; color: var(--ink-2); }
+  #lots tr.variant td { color: var(--ink-2); }
   tr.champion td { font-weight: 600; }
   tr.promoted td:first-child::after { content: " promoted"; color: var(--mut); font-weight: 500; }
 
@@ -92,6 +98,12 @@
   <h2>This week's tournament</h2>
   <p class="lede" id="tourLede"></p>
   <table id="board"><thead><tr><th>Bot</th><th>Venue</th><th class="r">Trades</th><th class="r">Win rate</th><th class="r">Fees</th><th class="r">Net P&amp;L</th><th class="r">Max DD</th></tr></thead><tbody></tbody></table>
+</section>
+
+<section>
+  <h2>Open lots</h2>
+  <p class="lede" id="lotsLede"></p>
+  <div class="lots-wrap"><table id="lots"><thead><tr><th>Lot</th><th>Side</th><th>Opened</th><th class="r">Entry</th><th class="r">Size</th><th class="r">Net now</th><th class="r">Unrealised</th><th class="r">Exit trigger</th><th class="r">Hard stop</th><th>Track</th><th>Resting</th></tr></thead><tbody></tbody></table></div>
 </section>
 
 <section class="grid">
@@ -182,6 +194,17 @@ async function load() {
   const lv = D.champion.live;
   $('#champFacts').innerHTML = (lv ? `<dt>Account</dt><dd class="num ${cls(lv.returnPct)}">${usd(lv.equityUsd)} (${(lv.returnPct * 100).toFixed(2)}% since start) · ${lv.equityBtc?.toFixed(5)} BTC</dd><dt>State</dt><dd>regime ${lv.regime}, target ${pct(lv.tiltTarget)} BTC, drawdown tier ${lv.ddTier}, ${lv.openLots} open lots, ${lv.resting} resting orders</dd><dt>Realised</dt><dd class="num">${usd(lv.realised?.usdt)} USDT · ${(lv.realised?.btc || 0).toFixed(6)} BTC · fees ${usd(lv.fees)} · tax accrued ${usd(lv.tax)}</dd>` : '') + `<dt>Name</dt><dd>${D.champion.name} v${D.champion.version}</dd><dt>Hypothesis</dt><dd>${D.champion.hypothesis}</dd><dt>Runs on</dt><dd>${D.config.interval} candles, ${usd(D.config.notional, 0)} per trade, stops after ${usd(D.config.maxDailyLoss, 0)} daily loss</dd><dt>Record</dt><dd>${all.trades || 0} trades, ${pct(all.winRate)} won, profit factor ${isFinite(all.profitFactor) ? (all.profitFactor || 0).toFixed(2) : '∞'}</dd>`;
   $('#params').innerHTML = Object.entries(D.champion.params).map(([k, v]) => `<div><span>${k}</span><span class="num">${v}</span></div>`).join('');
+
+  // open lots
+  const lotRows = [];
+  const addLots = (botId, lv) => { for (const l of lv?.lots || []) lotRows.push({ botId, ...l }); };
+  addLots('champion', D.champion.live);
+  for (const b of D.bots.filter((b) => b.botId !== 'champion')) addLots(b.botId, b.live);
+  const lp = D.champion.live?.lotsPrice, la = D.champion.live?.lotsAt;
+  $('#lotsLede').innerHTML = (la ? `Snapshot at ${when(new Date(la).toISOString())}, BTC ${lp?.toFixed(0)}. ` : 'No lot snapshot yet (the engine writes one each tick). ')
+    + `<b>Exit trigger</b>: "arms at" is where a lot reaches +1% net and starts trailing; "floor" is the price it exits at if BTC gives back to it. To act on a lot, SSH to the bot and run <code>node src/lotctl.js close &lt;lot&gt;</code> (market exit now, can be at a loss) or <code>node src/lotctl.js abandon &lt;lot&gt;</code> (no trade; holdings join the other side). Paper-variant lots are shown greyed; add <code>--bot &lt;id&gt;</code> for those.`;
+  const sideLbl = (l) => l.side === 'usdt' ? 'USDT side<br><span class="side">bought BTC</span>' : 'BTC side<br><span class="side">sold BTC</span>';
+  $('#lots tbody').innerHTML = lotRows.map((l) => `<tr class="${l.botId === 'champion' ? '' : 'variant'}"><td><code>${l.id}</code>${l.botId === 'champion' ? '' : `<br><span class="side">${l.botId}</span>`}</td><td>${sideLbl(l)}</td><td class="num">${when(new Date(l.openedT).toISOString())}</td><td class="r num">${l.entry.toFixed(0)}</td><td class="r num">${l.btc.toFixed(5)} BTC<br><span class="side">${usd(l.usdt)}</span></td><td class="r num ${cls(l.gainNow)}">${(l.gainNow * 100).toFixed(2)}%</td><td class="r num ${cls(l.unrealisedUsd)}">${usd(l.unrealisedUsd)}</td><td class="r num">${l.target.kind === 'arm' ? 'arms at' : 'floor'} ${l.target.price.toFixed(0)}<br><span class="side">${l.target.kind === 'arm' ? '+' : 'locks +'}${(l.target.gain * 100).toFixed(0)}% net</span></td><td class="r num">${l.stop.toFixed(0)}</td><td>${l.track}</td><td>${l.resting ? `${l.resting.why || 'order'} @ ${l.resting.price.toFixed(0)}` : ''}</td></tr>`).join('') || '<tr><td colspan="11" class="empty">No open lots.</td></tr>';
 
   // review
   const ev = D.lastEvaluation;
